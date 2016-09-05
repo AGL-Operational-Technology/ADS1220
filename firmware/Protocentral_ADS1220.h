@@ -61,8 +61,8 @@
 //#define PGA_ON (Config_Reg0 & ~_BV(0))
 //#define PGA_OFF (Config_Reg0 | _BV(0))
 
-#define ADS1220_CS_PIN 7
-#define ADS1220_DRDY_PIN 6
+#define ADS1220_CS_PIN A0
+#define ADS1220_DRDY_PIN A1
 #define _BV(bit) (1<<(bit))  
 
 class Protocentral_ADS1220
