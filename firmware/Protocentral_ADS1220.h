@@ -5,6 +5,8 @@
 
 //#include "SPI.h" // necessary library
 
+#include "application.h"
+
 #define SPI_MASTER_DUMMY   0xFF
 #define RESET 0x06                                                    //Send the RESET command (06h) to make sure the ADS1220 is properly reset after power-up
 #define START 0x08                                         //Send the START/SYNC command (08h) to start converting in continuous conversion mode
