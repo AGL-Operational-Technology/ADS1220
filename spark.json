@@ -1,7 +1,7 @@
 {
-  "name": "LMP91000",
-  "author": "Shashank Sharma",
+  "name": "Protocentral_ADS1220",
+  "author": "Sohil Patel",
   "license": "OIZOM",
   "version": "0.0.1",
-  "description": "LMP91000 library"
+  "description": "ADS1220 library"
 }
