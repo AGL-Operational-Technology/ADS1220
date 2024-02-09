@@ -1,253 +1,376 @@
-// #include <Arduino.h>
+#include "Particle.h"
 #include "Protocentral_ADS1220.h"
-// #include <SPI.h>
+#include "SPI.h"
+#include "limits.h"
 
+SPISettings SPI_SETTINGS(2000000, MSBFIRST, SPI_MODE1); 
 
- 
+#ifdef _BV
+#undef _BV
+#endif
+
+#define _BV(bit) (1<<(bit))
+
+Protocentral_ADS1220::Protocentral_ADS1220() 								// Constructors
+{
+
+}
+
 void Protocentral_ADS1220::writeRegister(uint8_t address, uint8_t value)
 {
-  digitalWrite(ADS1220_CS_PIN,LOW);
-  delay(5);
-  SPI.transfer(WREG|(address<<2));      	
-  SPI.transfer(value); 
-  delay(5);
-  digitalWrite(ADS1220_CS_PIN,HIGH);
-}  
+    SPI.beginTransaction(SPI_SETTINGS);
+    digitalWrite(m_cs_pin,LOW);
+    delayMicroseconds(1);
+    SPI.transfer(WREG|(address<<2));
+    SPI.transfer(value);
+    delayMicroseconds(1);
+    digitalWrite(m_cs_pin,HIGH);
+    SPI.endTransaction();
+}
 
 uint8_t Protocentral_ADS1220::readRegister(uint8_t address)
 {
-  uint8_t data;
+    uint8_t data;
 
-  digitalWrite(ADS1220_CS_PIN,LOW);
-  delay(5);
-  SPI.transfer(RREG|(address<<2));      	
-  data = SPI.transfer(SPI_MASTER_DUMMY); 
-  delay(5);
-  digitalWrite(ADS1220_CS_PIN,HIGH);
+    SPI.beginTransaction(SPI_SETTINGS);
+    digitalWrite(m_cs_pin,LOW);
+    delayMicroseconds(1);
+    SPI.transfer(RREG|(address<<2));
+    data = SPI.transfer(SPI_MASTER_DUMMY);
+    delayMicroseconds(1);
+    digitalWrite(m_cs_pin,HIGH);
+    SPI.endTransaction();
 
-  return data;
-}  
+    return data;
+}
 
-
-void Protocentral_ADS1220::begin()
+void Protocentral_ADS1220::begin(uint8_t cs_pin, uint8_t drdy_pin)
 {
-  static char data;
+    m_drdy_pin=drdy_pin;
+    m_cs_pin=cs_pin;
 
-  Serial.begin(9600);	        	//115200 57600
-  SPI.begin();                           // wake up the SPI bus.
-  //SPI.setBitOrder(MSBFIRST);
-  SPI.setDataMode(SPI_MODE1);
-	
-  delay(100);
-  SPI_Reset();                                            
-  delay(100);                                                    
+    pinMode(m_cs_pin, OUTPUT);
+    pinMode(m_drdy_pin, INPUT);
 
-  digitalWrite(ADS1220_CS_PIN,LOW);
-  /*SPI.transfer(WREG);           //WREG command (43h, 08h, 04h, 10h, and 00h)
-  SPI.transfer(0x01);      	
-  SPI.transfer(0x04);     
-  SPI.transfer(0x10);    
-  SPI.transfer(0x00);   
-  */
-  Config_Reg0 = 0x01;
-  Config_Reg1 = 0x04;
-  Config_Reg2 = 0x10;
-  Config_Reg3 = 0x00;
-  
+#if defined(BOARD_SENSYTHING)
+    SPI.begin(18, 35, 23, 19);
+#else
+    SPI.begin();
+    //SPI.setClockDivider(SPI_CLOCK_DIV2);
+#endif
+    //SPI.setBitOrder(MSBFIRST);
+    //SPI.setDataMode(SPI_MODE3);
 
-  writeRegister( CONFIG_REG0_ADDRESS , Config_Reg0);
-  writeRegister( CONFIG_REG1_ADDRESS , Config_Reg1);
-  writeRegister( CONFIG_REG2_ADDRESS , Config_Reg2);
-  writeRegister( CONFIG_REG3_ADDRESS , Config_Reg3);
-  delay(100);
-  /*
-  SPI.transfer(RREG);           //RREG
-  data = SPI.transfer(SPI_MASTER_DUMMY);
-  //Serial.println(data);
-  data = SPI.transfer(SPI_MASTER_DUMMY); 
-  //Serial.println(data);
-  data = SPI.transfer(SPI_MASTER_DUMMY); 
-  //Serial.println(data);
-  data = SPI.transfer(SPI_MASTER_DUMMY); 
-  //Serial.println(data);
-  */
+    ads1220_Reset();
+    delayMicroseconds(50);
+    
+    // The device pulls nDRDY low after it is initialized
+    if(!WaitForData(1)){
+        // TODO: Handle the timeout
+    }
 
-  Config_Reg0 = readRegister(CONFIG_REG0_ADDRESS);
-  Config_Reg1 = readRegister(CONFIG_REG1_ADDRESS);
-  Config_Reg2 = readRegister(CONFIG_REG2_ADDRESS);
-  Config_Reg3 = readRegister(CONFIG_REG3_ADDRESS);
+    m_config_reg0 = 0x00;   //Default settings: AINP=AIN0, AINN=AIN1, Gain 1, PGA enabled
+    m_config_reg1 = 0x04;   //Default settings: DR=20 SPS, Mode=Normal, Conv mode=continuous, Temp Sensor disabled, Current Source off
+    m_config_reg2 = 0x10;   //Default settings: Vref internal, 50/60Hz rejection, power open, IDAC off
+    m_config_reg3 = 0x00;   //Default settings: IDAC1 disabled, IDAC2 disabled, DRDY pin only
 
-  Serial.println("Config_Reg : ");
-  Serial.println(Config_Reg0,HEX);
-  Serial.println(Config_Reg1,HEX);
-  Serial.println(Config_Reg2,HEX);
-  Serial.println(Config_Reg3,HEX);
-  Serial.println(" ");
-  digitalWrite(ADS1220_CS_PIN,HIGH); //release chip, signal end transfer
+    writeRegister( CONFIG_REG0_ADDRESS , m_config_reg0);
+    writeRegister( CONFIG_REG1_ADDRESS , m_config_reg1);
+    writeRegister( CONFIG_REG2_ADDRESS , m_config_reg2);
+    writeRegister( CONFIG_REG3_ADDRESS , m_config_reg3);
+}
 
-  SPI_Start();
-  delay(100);
+void Protocentral_ADS1220::PrintRegisterValues(){
+    Config_Reg0 = readRegister(CONFIG_REG0_ADDRESS);
+    Config_Reg1 = readRegister(CONFIG_REG1_ADDRESS);
+    Config_Reg2 = readRegister(CONFIG_REG2_ADDRESS);
+    Config_Reg3 = readRegister(CONFIG_REG3_ADDRESS);
 
+    Serial.println("Config_Reg : ");
+    Serial.println(Config_Reg0,HEX);
+    Serial.println(Config_Reg1,HEX);
+    Serial.println(Config_Reg2,HEX);
+    Serial.println(Config_Reg3,HEX);
+    Serial.println(" ");
 }
 
 void Protocentral_ADS1220::SPI_Command(unsigned char data_in)
 {
-  digitalWrite(ADS1220_CS_PIN, LOW);
-  delay(2);
-  digitalWrite(ADS1220_CS_PIN, HIGH);
-  delay(2);
-  digitalWrite(ADS1220_CS_PIN, LOW);
-  delay(2);
-  SPI.transfer(data_in);
-  delay(2);
-  digitalWrite(ADS1220_CS_PIN, HIGH);
+    SPI.beginTransaction(SPI_SETTINGS);
+    digitalWrite(m_cs_pin, LOW);
+    delayMicroseconds(1);
+    SPI.transfer(data_in);
+    delayMicroseconds(1);
+    digitalWrite(m_cs_pin, HIGH);
+    SPI.endTransaction();
 }
 
-void Protocentral_ADS1220::SPI_Reset()
+void Protocentral_ADS1220::ads1220_Reset()
 {
-  SPI_Command(RESET);		                    			
+    SPI_Command(RESET);
 }
 
-void Protocentral_ADS1220::SPI_Start()
+void Protocentral_ADS1220::Start_Conv()
 {
-  SPI_Command(START);
+    SPI_Command(START);
 }
 
-
-Protocentral_ADS1220::Protocentral_ADS1220() 								// Constructors 
+// control register 0
+void Protocentral_ADS1220::select_mux_channels(int channels_conf)
 {
-  Serial.begin(9600);	        	//115200 57600
-  Serial.println("ads1220 class declared");
-  NewDataAvailable = false;
+    m_config_reg0 &= ~REG_CONFIG0_MUX_MASK;
+    m_config_reg0 |= channels_conf;
+    writeRegister(CONFIG_REG0_ADDRESS,m_config_reg0);
 }
-
-void Protocentral_ADS1220::PGA_ON(void)
-{	 
-  Config_Reg0 &= ~_BV(0);
-  writeRegister(CONFIG_REG0_ADDRESS,Config_Reg0);	
-}
-
-void Protocentral_ADS1220::PGA_OFF(void)
-{	 
-  Config_Reg0 |= _BV(0);
-  writeRegister(CONFIG_REG0_ADDRESS,Config_Reg0);	
-}
-
-void Protocentral_ADS1220::Continuous_conversion_mode_ON(void)
-{
-  Config_Reg1 |= _BV(2);
-  writeRegister(CONFIG_REG1_ADDRESS,Config_Reg1);
-}
-
-void Protocentral_ADS1220::Single_shot_mode_ON(void)
-{
-  Config_Reg1 &= ~_BV(2);
-  writeRegister(CONFIG_REG1_ADDRESS,Config_Reg1);
-}
-
-
-void Protocentral_ADS1220::set_data_rate(int datarate)
-{
-  Config_Reg1 &= ~REG_CONFIG_DR_MASK;
-  
-  switch(datarate)
-  {
-    case(DR_20SPS):
-      Config_Reg1 |= REG_CONFIG_DR_20SPS; 
-      break;
-    case(DR_45SPS):
-      Config_Reg1 |= REG_CONFIG_DR_45SPS; 
-      break;
-    case(DR_90SPS):
-      Config_Reg1 |= REG_CONFIG_DR_90SPS; 
-      break;
-    case(DR_175SPS):
-      Config_Reg1 |= REG_CONFIG_DR_175SPS; 
-      break;
-    case(DR_330SPS):
-      Config_Reg1 |= REG_CONFIG_DR_330SPS; 
-      break;
-    case(DR_600SPS):
-      Config_Reg1 |= REG_CONFIG_DR_600SPS; 
-      break;
-    case(DR_1000SPS):
-      Config_Reg1 |= REG_CONFIG_DR_1000SPS; 
-      break;
-  }
-
-  writeRegister(CONFIG_REG1_ADDRESS,Config_Reg1);
-}
-
 
 void Protocentral_ADS1220::set_pga_gain(int pgagain)
 {
-  Config_Reg0 &= ~REG_CONFIG_PGA_GAIN_MASK;
-
-  switch(pgagain)
-  {
-    case(PGA_GAIN_1):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_1 ; 
-      break;
-    case(PGA_GAIN_2):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_2; 
-      break;
-    case(PGA_GAIN_4):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_4; 
-      break;
-    case(PGA_GAIN_8):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_8; 
-      break;
-    case(PGA_GAIN_16):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_16; 
-      break;
-    case(PGA_GAIN_32):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_32; 
-      break;
-    case(PGA_GAIN_64):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_64; 
-      break;
-    case(PGA_GAIN_128):
-      Config_Reg0 |= REG_CONFIG_PGA_GAIN_128; 
-      break;
-  }
-  
-  writeRegister(CONFIG_REG0_ADDRESS,Config_Reg0);
+    m_config_reg0 &= ~REG_CONFIG0_PGA_GAIN_MASK;
+    m_config_reg0 |= pgagain ;
+    writeRegister(CONFIG_REG0_ADDRESS,m_config_reg0);
 }
+
+void Protocentral_ADS1220::PGA_ON(void)
+{
+    m_config_reg0 &= ~_BV(0);
+    writeRegister(CONFIG_REG0_ADDRESS,m_config_reg0);
+}
+
+void Protocentral_ADS1220::PGA_OFF(void)
+{
+    m_config_reg0 |= _BV(0);
+    writeRegister(CONFIG_REG0_ADDRESS,m_config_reg0);
+}
+
+// control register 1
+void Protocentral_ADS1220::set_data_rate(int datarate)
+{
+    m_config_reg1 &= ~REG_CONFIG1_DR_MASK;
+    m_config_reg1 |= datarate;
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::set_OperationMode(int OPmode)
+{
+    m_config_reg1 &= ~REG_CONFIG1_MODE_MASK;
+    m_config_reg1 |= OPmode;
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::set_conv_mode_single_shot(void)
+{
+    m_config_reg1 &= ~_BV(2);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::set_conv_mode_continuous(void)
+{
+    m_config_reg1 |= _BV(2);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::TemperatureSensorMode_disable(void)
+{
+    m_config_reg1 &= ~_BV(1);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::TemperatureSensorMode_enable(void)
+{
+    m_config_reg1 |= _BV(1);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::CurrentSources_OFF(void)
+{
+    m_config_reg1 &= ~_BV(0);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+void Protocentral_ADS1220::CurrentSources_ON(void)
+{
+    m_config_reg1 |= _BV(0);
+    writeRegister(CONFIG_REG1_ADDRESS,m_config_reg1);
+}
+
+// control register 2
+void Protocentral_ADS1220::set_VREF(int vref)
+{
+    m_config_reg2 &= ~REG_CONFIG2_VREF_MASK;
+    m_config_reg2 |= vref;
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+void Protocentral_ADS1220::set_FIR_Filter(int filter)
+{
+    m_config_reg2 &= ~REG_CONFIG2_FIR_MASK;
+    m_config_reg2 |= filter;
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+void Protocentral_ADS1220::LowSideSwitch_OPEN(void)
+{
+    m_config_reg2 &= ~_BV(3);
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+void Protocentral_ADS1220::LowSideSwitch_CLOSED(void)
+{
+    m_config_reg2 |= _BV(3);
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+void Protocentral_ADS1220::set_IDAC_Current(int IDACcurrent)
+{
+    m_config_reg2 &= ~REG_CONFIG2_IDACcurrent_MASK;
+    m_config_reg2 |= IDACcurrent;
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+// control register 3
+void Protocentral_ADS1220::set_IDAC1_Route(int IDAC1routing)
+{
+    m_config_reg3 &= ~REG_CONFIG3_IDAC1routing_MASK;
+    m_config_reg3 |= IDAC1routing;
+    writeRegister(CONFIG_REG3_ADDRESS,m_config_reg3);
+}
+
+void Protocentral_ADS1220::set_IDAC2_Route(int IDAC2routing)
+{
+    m_config_reg3 &= ~REG_CONFIG3_IDAC2routing_MASK;
+    m_config_reg3 |= IDAC2routing;
+    writeRegister(CONFIG_REG3_ADDRESS,m_config_reg3);
+}
+
+ void Protocentral_ADS1220::DRDYmode_default(void)
+ {
+     m_config_reg3 &= ~_BV(3);
+     writeRegister(CONFIG_REG3_ADDRESS,m_config_reg3);
+ }
+
+ void Protocentral_ADS1220::DRDYmode_DOUT(void)
+ {
+     m_config_reg3 |= _BV(3);
+     writeRegister(CONFIG_REG3_ADDRESS,m_config_reg3);
+ }
+// end control register
 
 uint8_t * Protocentral_ADS1220::get_config_reg()
 {
-  static uint8_t config_Buff[4];
+    static uint8_t config_Buff[4];
 
-  Config_Reg0 = readRegister(CONFIG_REG0_ADDRESS);
-  Config_Reg1 = readRegister(CONFIG_REG1_ADDRESS);
-  Config_Reg2 = readRegister(CONFIG_REG2_ADDRESS);
-  Config_Reg3 = readRegister(CONFIG_REG3_ADDRESS);
+    m_config_reg0 = readRegister(CONFIG_REG0_ADDRESS);
+    m_config_reg1 = readRegister(CONFIG_REG1_ADDRESS);
+    m_config_reg2 = readRegister(CONFIG_REG2_ADDRESS);
+    m_config_reg3 = readRegister(CONFIG_REG3_ADDRESS);
 
-  config_Buff[0] = Config_Reg0 ; 
-  config_Buff[1] = Config_Reg1 ;
-  config_Buff[2] = Config_Reg2 ;
-  config_Buff[3] = Config_Reg3 ;
+    config_Buff[0] = m_config_reg0 ;
+    config_Buff[1] = m_config_reg1 ;
+    config_Buff[2] = m_config_reg2 ;
+    config_Buff[3] = m_config_reg3 ;
 
-  return config_Buff;
+    return config_Buff;
 }
 
+bool Protocentral_ADS1220::WaitForData(unsigned int timeout_ms){
+    while(digitalRead(m_drdy_pin)){
+        if(timeout_ms){
+            delay(1);
+            --timeout_ms;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
 
-uint8_t * Protocentral_ADS1220::Read_Data()
+uint8_t * Protocentral_ADS1220::Read_Data(void){
+    SPI.beginTransaction(SPI_SETTINGS);
+    digitalWrite(m_cs_pin, LOW);                         //Take CS low
+    delayMicroseconds(1);
+    for (int i = 0; i < 3; i++)
+    {
+        DataReg[i] = SPI.transfer(0);
+    }
+    delayMicroseconds(1);
+    digitalWrite(m_cs_pin, HIGH);                  //  Clear CS to high
+    SPI.endTransaction();
+
+    return DataReg;
+}
+
+int32_t Protocentral_ADS1220::DataToInt(){
+    int32_t result = 0;
+    result = DataReg[0];
+    result = (result << 8) | DataReg[1];
+    result = (result << 8) | DataReg[2];
+
+    if (DataReg[0] & (1<<7)) {
+        result |= 0xFF000000;
+    }
+
+    return result;
+}
+
+int32_t Protocentral_ADS1220::Read_WaitForData()
 {
-  static byte SPI_Buff[3];
+    if(!WaitForData(60)){
+        //return std::numeric_limits<int32_t>::min();
+        return 0;
+    }
+    Read_Data();
+    return DataToInt();
+}
 
-  if((digitalRead(ADS1220_DRDY_PIN)) == LOW)             //        Wait for DRDY to transition low
-  {
-  	digitalWrite(ADS1220_CS_PIN,LOW);                         //Take CS low
-  	delayMicroseconds(100);
-  	for (int i = 0; i < 3; i++)
-  	{ 
-  	  SPI_Buff[i] = SPI.transfer(SPI_MASTER_DUMMY);
-  	}
-  	delayMicroseconds(100);
-  	digitalWrite(ADS1220_CS_PIN,HIGH);                  //  Clear CS to high
-  	NewDataAvailable = true;
-  }
-  	
-  return SPI_Buff;
+int32_t Protocentral_ADS1220::Read_Data_Samples()
+{
+    static byte SPI_Buff[3];
+    int32_t mResult32=0;
+    long int bit24;
+
+    digitalWrite(m_cs_pin,LOW);                         //Take CS low
+    delayMicroseconds(100);
+    for (int i = 0; i < 3; i++)
+    {
+      SPI_Buff[i] = SPI.transfer(SPI_MASTER_DUMMY);
+    }
+    delayMicroseconds(100);
+    digitalWrite(m_cs_pin,HIGH);                  //  Clear CS to high
+
+    bit24 = SPI_Buff[0];
+    bit24 = (bit24 << 8) | SPI_Buff[1];
+    bit24 = (bit24 << 8) | SPI_Buff[2];                                 // Converting 3 bytes to a 24 bit int
+
+    bit24= ( bit24 << 8 );
+    mResult32 = ( bit24 >> 8 );                      // Converting 24 bit two's complement to 32 bit two's complement
+
+    return mResult32;
+}
+
+int32_t Protocentral_ADS1220::Read_SingleShot_WaitForData(void)
+{
+    Start_Conv();
+    return Read_WaitForData();
+}
+
+int32_t Protocentral_ADS1220::Read_SingleShot_SingleEnded_WaitForData(uint8_t channel_no)
+{
+    select_mux_channels(channel_no);
+    return Read_SingleShot_WaitForData();
+}
+
+#define VREF_MASK ((1 << 6) | (1<<7))
+#define VREF_INT (0 << 6)
+#define VREF_EXT (1 << 6)
+
+void Protocentral_ADS1220::internal_reference(){
+    m_config_reg2 &= ~VREF_MASK;
+    m_config_reg2 |= VREF_INT;
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
+}
+
+void Protocentral_ADS1220::external_reference(){
+    m_config_reg2 &= ~VREF_MASK;
+    m_config_reg2 |= VREF_EXT;
+    writeRegister(CONFIG_REG2_ADDRESS,m_config_reg2);
 }
