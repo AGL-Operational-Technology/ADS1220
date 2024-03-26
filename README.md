@@ -1,1 +1,3 @@
-ADS1220 Library for Particle.
+# ADS1220
+
+A Particle library for ADS1220

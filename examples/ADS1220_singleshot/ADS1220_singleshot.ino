@@ -1,6 +1,6 @@
 // Include Particle Device OS APIs
 #include "Particle.h"
-#include "Protocentral_ADS1220.h"
+#include "ADS1220.h"
 // #include "SPI.h"
 
 // Let Device OS manage the connection to the Particle Cloud
@@ -24,7 +24,7 @@ volatile byte data;
 volatile byte LSB;
 //volatile char SPI_RX_Buff[3];
 volatile byte *SPI_RX_Buff_Ptr;
-Protocentral_ADS1220 ADS1220;
+ADS1220 ADS1220;
 volatile bool drdyIntrFlag = false;
 double adc0, adc1;
 

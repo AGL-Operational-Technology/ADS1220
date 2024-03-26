@@ -104,7 +104,7 @@
 #define MUX_SE_CH3      0xB0
 
 
-class Protocentral_ADS1220
+class ADS1220
 {
       private:
             uint8_t m_config_reg0;
@@ -124,7 +124,7 @@ class Protocentral_ADS1220
       public:
             uint8_t NewDataAvailable;
 
-            Protocentral_ADS1220();
+            ADS1220();
             void begin(uint8_t cs_pin, uint8_t drdy_pin);
 
             void PrintRegisterValues();
